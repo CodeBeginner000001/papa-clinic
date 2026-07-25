@@ -17,9 +17,10 @@ const APP_VERSION = app.getVersion()
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 function resolveAppIcon(): string | undefined {
+  // Prefer PNG at runtime — Electron nativeImage/dock.setIcon often fails on .icns
   const candidates = [
-    path.join(__dirname, '../build/icon.icns'),
     path.join(__dirname, '../build/icon.png'),
+    path.join(__dirname, '../public/icon.png'),
     path.join(process.resourcesPath ?? '', 'build/icon.png'),
     path.join(process.resourcesPath ?? '', 'icon.png'),
   ]
@@ -307,10 +308,14 @@ async function startApp(): Promise<void> {
 app.whenReady().then(() => {
   const iconPath = resolveAppIcon()
   if (iconPath && process.platform === 'darwin' && app.dock) {
-    app.dock.setIcon(iconPath)
+    try {
+      app.dock.setIcon(iconPath)
+    } catch {
+      // Ignore invalid/unsupported icon formats in development
+    }
   }
 
-  startApp()
+  void startApp()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow()

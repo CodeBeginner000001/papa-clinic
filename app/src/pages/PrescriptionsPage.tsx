@@ -4,7 +4,7 @@ import { api } from '../lib/api'
 import { fmtDate, todayIso, inDateRange, DATE_RANGES, type DateRange } from '../lib/format'
 import { Avatar, Badge, Loading, StatCard, useToast } from '../components/ui'
 import { RowMenu, menuCoordsFromEvent } from '../components/RowMenu'
-import { ICalendar, ICheck, IDownload, IEdit, IEye, IMore, IPrint, IRx, ISearch } from '../components/icons'
+import { ICalendar, ICheck, IDownload, IEdit, IMore, IPrint, IRx, ISearch } from '../components/icons'
 import type { PrescriptionListItem } from '@shared/types'
 
 type Filter = 'all' | 'draft' | 'final' | 'followup'
@@ -157,6 +157,7 @@ export default function PrescriptionsPage() {
                     <th>Patient</th>
                     <th>Diagnosis</th>
                     <th className="num">Total Medicines</th>
+                    <th className="num">Edits</th>
                     <th>Follow-up Date</th>
                     <th>Status</th>
                   </tr>
@@ -164,7 +165,7 @@ export default function PrescriptionsPage() {
                 <tbody>
                   {filtered.length === 0 && (
                     <tr>
-                      <td colSpan={7}>
+                      <td colSpan={8}>
                         <div className="empty">No prescriptions found. Create one from a visit.</div>
                       </td>
                     </tr>
@@ -197,6 +198,7 @@ export default function PrescriptionsPage() {
                         </td>
                         <td>{r.diagnosis || '—'}</td>
                         <td className="num">{r.medicine_count}</td>
+                        <td className="num">{r.edit_count ?? 0}</td>
                         <td className="date-cell">{fmtDate(r.follow_up_date)}</td>
                         <td>
                           {r.status === 'finalized' ? <Badge tone="green">Finalized</Badge> : <Badge tone="amber">Draft</Badge>}
@@ -224,15 +226,7 @@ export default function PrescriptionsPage() {
               navigate(`/visits/${menuRx.visit_id}/prescription`)
             }}
           >
-            {menuRx.status === 'finalized' ? (
-              <>
-                <IEye size={14} /> View
-              </>
-            ) : (
-              <>
-                <IEdit size={14} /> Edit
-              </>
-            )}
+            <IEdit size={14} /> Edit
           </button>
           <button type="button" role="menuitem" onClick={() => print(menuRx)}>
             <IPrint size={14} /> Print

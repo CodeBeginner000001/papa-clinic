@@ -991,43 +991,47 @@ export function savePrescription(input: {
 }): Prescription {
   const status = input.status ?? 'draft'
 
-  // Editing is blocked once a prescription is finalized, or 24 hours after creation.
+  // Soft 24h lock — finalized prescriptions can still be edited explicitly from the UI.
   const assertEditable = (id: number) => {
     const existing = getDb()
-      .prepare(`SELECT status, created_at FROM prescriptions WHERE id=?`)
-      .get(id) as { status: PrescriptionStatus; created_at: string } | undefined
+      .prepare(`SELECT created_at FROM prescriptions WHERE id=?`)
+      .get(id) as { created_at: string } | undefined
     if (!existing) return
-    if (existing.status === 'finalized') {
-      throw new Error('This prescription is finalized and can no longer be edited.')
-    }
     const createdMs = Date.parse(existing.created_at.replace(' ', 'T') + 'Z')
     if (Number.isFinite(createdMs) && Date.now() - createdMs > 24 * 60 * 60 * 1000) {
       throw new Error('This prescription is more than a day old and can no longer be edited.')
     }
   }
 
+  const updatePrescription = (
+    prescriptionId: number,
+    nextStatus: PrescriptionStatus,
+  ) => {
+    getDb()
+      .prepare(
+        `UPDATE prescriptions SET
+          prescription_date=?, diagnosis=?, tests_advised=?, advice=?, follow_up_date=?,
+          notes=?, status=?, edit_count=edit_count + 1, updated_at=datetime('now')
+         WHERE id=?`,
+      )
+      .run(
+        input.prescriptionDate,
+        input.diagnosis ?? null,
+        input.testsAdvised ?? null,
+        input.advice ?? null,
+        input.followUpDate ?? null,
+        input.notes ?? null,
+        nextStatus,
+        prescriptionId,
+      )
+    getDb().prepare(`DELETE FROM prescription_medicines WHERE prescription_id=?`).run(prescriptionId)
+  }
+
   const tx = getDb().transaction(() => {
     let prescriptionId = input.id
     if (prescriptionId) {
       assertEditable(prescriptionId)
-      getDb()
-        .prepare(
-          `UPDATE prescriptions SET
-            prescription_date=?, diagnosis=?, tests_advised=?, advice=?, follow_up_date=?,
-            notes=?, status=?, updated_at=datetime('now')
-           WHERE id=?`,
-        )
-        .run(
-          input.prescriptionDate,
-          input.diagnosis ?? null,
-          input.testsAdvised ?? null,
-          input.advice ?? null,
-          input.followUpDate ?? null,
-          input.notes ?? null,
-          status,
-          prescriptionId,
-        )
-      getDb().prepare(`DELETE FROM prescription_medicines WHERE prescription_id=?`).run(prescriptionId)
+      updatePrescription(prescriptionId, status)
     } else {
       const existing = getDb()
         .prepare(`SELECT id FROM prescriptions WHERE visit_id=? AND deleted_at IS NULL`)
@@ -1035,32 +1039,15 @@ export function savePrescription(input: {
       if (existing) {
         prescriptionId = existing.id
         assertEditable(prescriptionId)
-        getDb()
-          .prepare(
-            `UPDATE prescriptions SET
-              prescription_date=?, diagnosis=?, tests_advised=?, advice=?, follow_up_date=?,
-              notes=?, status=?, updated_at=datetime('now')
-             WHERE id=?`,
-          )
-          .run(
-            input.prescriptionDate,
-            input.diagnosis ?? null,
-            input.testsAdvised ?? null,
-            input.advice ?? null,
-            input.followUpDate ?? null,
-            input.notes ?? null,
-            status,
-            prescriptionId,
-          )
-        getDb().prepare(`DELETE FROM prescription_medicines WHERE prescription_id=?`).run(prescriptionId)
+        updatePrescription(prescriptionId, status)
       } else {
         const code = nextCode('RX')
         const result = getDb()
           .prepare(
             `INSERT INTO prescriptions (
               prescription_code, patient_id, visit_id, prescription_date, diagnosis,
-              tests_advised, advice, follow_up_date, notes, status
-            ) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+              tests_advised, advice, follow_up_date, notes, status, edit_count
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,0)`,
           )
           .run(
             code,
@@ -3052,7 +3039,7 @@ export function getExportRows(
     const rows = db
       .prepare(
         `SELECT rx.prescription_code, rx.prescription_date, p.patient_code, p.full_name,
-                rx.diagnosis, rx.advice, rx.follow_up_date, rx.status,
+                rx.diagnosis, rx.advice, rx.follow_up_date, rx.status, rx.edit_count,
                 (SELECT COUNT(*) FROM prescription_medicines pm WHERE pm.prescription_id=rx.id) AS medicine_count
          FROM prescriptions rx JOIN patients p ON p.id=rx.patient_id
          WHERE rx.deleted_at IS NULL AND rx.prescription_date BETWEEN ? AND ?
@@ -3069,6 +3056,7 @@ export function getExportRows(
         'Advice',
         'Follow-up Date',
         'Status',
+        'Edits',
         'Medicine Count',
       ],
       rows: rows.map((r) => [
@@ -3080,6 +3068,7 @@ export function getExportRows(
         r.advice,
         r.follow_up_date,
         r.status,
+        r.edit_count ?? 0,
         r.medicine_count,
       ]),
     }

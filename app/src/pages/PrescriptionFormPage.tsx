@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { fmtDate, todayIso, ageGender } from '../lib/format'
-import { Avatar, Field, Loading, useSettings, useToast } from '../components/ui'
-import { IDownload, IEdit, IPrint, ITrash } from '../components/icons'
-import type { Medicine, Patient, Prescription, PrescriptionMedicine, Visit } from '@shared/types'
+import { Avatar, Badge, Field, Loading, useSettings, useToast } from '../components/ui'
+import { IEdit, IPrint, ITrash } from '../components/icons'
+import type { Medicine, Patient, Prescription, PrescriptionMedicine, PrescriptionStatus, Visit } from '@shared/types'
 
 interface MedRow {
   medicineId: number | null
@@ -179,6 +179,8 @@ export default function PrescriptionFormPage() {
   const [visit, setVisit] = useState<Visit | null>(null)
   const [patient, setPatient] = useState<Patient | null>(null)
   const [rxId, setRxId] = useState<number | undefined>()
+  const [rxStatus, setRxStatus] = useState<PrescriptionStatus>('draft')
+  const [editCount, setEditCount] = useState(0)
   const [form, setForm] = useState({
     prescriptionDate: todayIso(),
     diagnosis: '',
@@ -191,7 +193,7 @@ export default function PrescriptionFormPage() {
   const [optionLists, setOptionLists] = useState<OptionLists>({ dosage_form: [], frequency: [], timing: [] })
   const [saving, setSaving] = useState(false)
   const [loadedRx, setLoadedRx] = useState(false)
-  const navigate = useNavigate()
+  const [editing, setEditing] = useState(true)
   const toast = useToast()
   const { settings } = useSettings()
 
@@ -215,6 +217,9 @@ export default function PrescriptionFormPage() {
       api.getPrescriptionByVisit(id).then((rx: (Prescription & { medicines: PrescriptionMedicine[] }) | null) => {
         if (rx) {
           setRxId(rx.id)
+          setRxStatus(rx.status)
+          setEditCount(rx.edit_count ?? 0)
+          setEditing(rx.status !== 'finalized')
           setForm({
             prescriptionDate: rx.prescription_date,
             diagnosis: rx.diagnosis ?? '',
@@ -239,6 +244,7 @@ export default function PrescriptionFormPage() {
               : [emptyRow()],
           )
         } else {
+          setEditing(true)
           setForm((f) => ({
             ...f,
             diagnosis: v.final_diagnosis || v.provisional_diagnosis || '',
@@ -253,47 +259,46 @@ export default function PrescriptionFormPage() {
 
   if (!visit || !patient || !loadedRx) return <Loading />
 
-  const updateMed = (i: number, patch: Partial<MedRow>) => setMeds(meds.map((m, idx) => (idx === i ? { ...m, ...patch } : m)))
-
-  const save = async (print = false) => {
-    const validMeds = meds.filter((m) => m.medicineName.trim())
-    if (validMeds.length === 0) {
-      toast('Add at least one medicine', 'error')
-      return
-    }
-    setSaving(true)
-    try {
-      const rx = await api.savePrescription({
-        id: rxId,
-        patientId: patient.id,
-        visitId: visit.id,
-        prescriptionDate: form.prescriptionDate,
-        diagnosis: form.diagnosis,
-        testsAdvised: form.testsAdvised,
-        advice: form.advice,
-        followUpDate: form.followUpDate || null,
-        notes: form.notes,
-        status: 'draft',
-        medicines: validMeds,
-      })
-      setRxId(rx.id)
-      toast('Prescription saved')
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Failed to save prescription', 'error')
-      setSaving(false)
-      return
-    }
-    if (print) {
-      try {
-        await api.printPrescription(visit.id)
-      } catch (err) {
-        toast(`Prescription saved, but printing failed: ${err instanceof Error ? err.message : 'unknown error'}`, 'error')
-      }
-    }
-    setSaving(false)
+  const readOnly = !editing
+  const updateMed = (i: number, patch: Partial<MedRow>) => {
+    if (readOnly) return
+    setMeds(meds.map((m, idx) => (idx === i ? { ...m, ...patch } : m)))
   }
 
-  const savePdf = async () => {
+  const reloadPrescription = async () => {
+    const rx = (await api.getPrescriptionByVisit(visit.id)) as
+      | (Prescription & { medicines: PrescriptionMedicine[] })
+      | null
+    if (!rx) return
+    setRxId(rx.id)
+    setRxStatus(rx.status)
+    setEditCount(rx.edit_count ?? 0)
+    setForm({
+      prescriptionDate: rx.prescription_date,
+      diagnosis: rx.diagnosis ?? '',
+      advice: rx.advice ?? '',
+      testsAdvised: rx.tests_advised ?? '',
+      followUpDate: rx.follow_up_date ?? '',
+      notes: rx.notes ?? '',
+    })
+    setMeds(
+      rx.medicines.length
+        ? rx.medicines.map((m) => ({
+            medicineId: m.medicine_id,
+            medicineName: m.medicine_name_snapshot,
+            strength: m.strength_snapshot ?? '',
+            dosageForm: m.dosage_form_snapshot ?? '',
+            dose: m.dose ?? '',
+            frequency: m.frequency ?? '',
+            duration: m.duration ?? '',
+            timingInstruction: m.timing_instruction ?? '',
+            specialInstructions: m.special_instructions ?? '',
+          }))
+        : [emptyRow()],
+    )
+  }
+
+  const save = async (mode: 'draft' | 'final' | 'print') => {
     const validMeds = meds.filter((m) => m.medicineName.trim())
     if (validMeds.length === 0) {
       toast('Add at least one medicine', 'error')
@@ -301,24 +306,39 @@ export default function PrescriptionFormPage() {
     }
     setSaving(true)
     try {
-      const rx = await api.savePrescription({
-        id: rxId,
-        patientId: patient.id,
-        visitId: visit.id,
-        prescriptionDate: form.prescriptionDate,
-        diagnosis: form.diagnosis,
-        testsAdvised: form.testsAdvised,
-        advice: form.advice,
-        followUpDate: form.followUpDate || null,
-        notes: form.notes,
-        status: 'draft',
-        medicines: validMeds,
-      })
-      setRxId(rx.id)
-      const file = await api.pdfPrescription(visit.id)
-      toast(`PDF saved: ${file}`)
+      if (editing) {
+        const status: PrescriptionStatus = mode === 'final' ? 'finalized' : 'draft'
+        const rx = await api.savePrescription({
+          id: rxId,
+          patientId: patient.id,
+          visitId: visit.id,
+          prescriptionDate: form.prescriptionDate,
+          diagnosis: form.diagnosis,
+          testsAdvised: form.testsAdvised,
+          advice: form.advice,
+          followUpDate: form.followUpDate || null,
+          notes: form.notes,
+          status,
+          medicines: validMeds,
+        })
+        setRxId(rx.id)
+        setRxStatus(rx.status)
+        setEditCount(rx.edit_count ?? 0)
+        setEditing(status !== 'finalized')
+        toast(status === 'finalized' ? 'Prescription saved' : 'Draft saved')
+      }
+      if (mode === 'print') {
+        try {
+          await api.printPrescription(visit.id)
+        } catch (err) {
+          toast(
+            `Printing failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+            'error',
+          )
+        }
+      }
     } catch (err) {
-      toast(err instanceof Error ? err.message : 'Failed to save PDF', 'error')
+      toast(err instanceof Error ? err.message : 'Failed to save prescription', 'error')
     } finally {
       setSaving(false)
     }
@@ -337,14 +357,21 @@ export default function PrescriptionFormPage() {
             <span className="sep">/</span>
             <span>{rxId ? 'Prescription' : 'Add Prescription'}</span>
           </div>
-          <h1 className="page-title">{rxId ? 'Prescription' : 'Add Prescription'}</h1>
+          <h1 className="page-title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {rxId ? 'Prescription' : 'Add Prescription'}
+            {rxId && (
+              <>
+                {rxStatus === 'finalized' ? <Badge tone="green">Finalized</Badge> : <Badge tone="amber">Draft</Badge>}
+                <span className="page-sub" style={{ margin: 0 }}>
+                  Edits: {editCount}
+                </span>
+              </>
+            )}
+          </h1>
         </div>
         <div className="page-actions">
           <Link to={`/visits/${visit.id}`} className="btn btn-outline">
             ← Back to Visit
-          </Link>
-          <Link to={`/visits/${visit.id}/edit`} className="btn btn-outline">
-            <IEdit size={15} /> Edit Visit
           </Link>
         </div>
       </div>
@@ -378,16 +405,40 @@ export default function PrescriptionFormPage() {
         <div className="form-section-title">℞ Prescription Details</div>
         <div className="form-grid g4">
           <Field label="Prescription Date" required>
-            <input className="input" type="date" value={form.prescriptionDate} onChange={(e) => setForm({ ...form, prescriptionDate: e.target.value })} />
+            <input
+              className="input"
+              type="date"
+              value={form.prescriptionDate}
+              disabled={readOnly}
+              onChange={(e) => setForm({ ...form, prescriptionDate: e.target.value })}
+            />
           </Field>
           <Field label="Diagnosis" required>
-            <input className="input" value={form.diagnosis} onChange={(e) => setForm({ ...form, diagnosis: e.target.value })} placeholder="Diagnosis" />
+            <input
+              className="input"
+              value={form.diagnosis}
+              disabled={readOnly}
+              onChange={(e) => setForm({ ...form, diagnosis: e.target.value })}
+              placeholder="Diagnosis"
+            />
           </Field>
           <Field label="Follow-up Date">
-            <input className="input" type="date" value={form.followUpDate} onChange={(e) => setForm({ ...form, followUpDate: e.target.value })} />
+            <input
+              className="input"
+              type="date"
+              value={form.followUpDate}
+              disabled={readOnly}
+              onChange={(e) => setForm({ ...form, followUpDate: e.target.value })}
+            />
           </Field>
           <Field label="Tests Advised" optional>
-            <input className="input" value={form.testsAdvised} onChange={(e) => setForm({ ...form, testsAdvised: e.target.value })} placeholder="e.g. CBC, Lipid Profile" />
+            <input
+              className="input"
+              value={form.testsAdvised}
+              disabled={readOnly}
+              onChange={(e) => setForm({ ...form, testsAdvised: e.target.value })}
+              placeholder="e.g. CBC, Lipid Profile"
+            />
           </Field>
         </div>
         <div style={{ marginTop: 14 }}>
@@ -395,6 +446,7 @@ export default function PrescriptionFormPage() {
             <textarea
               className="textarea"
               value={form.advice}
+              disabled={readOnly}
               onChange={(e) => setForm({ ...form, advice: e.target.value })}
               placeholder="Plenty of rest and fluids. Take medication as prescribed. Return if symptoms worsen."
             />
@@ -409,14 +461,11 @@ export default function PrescriptionFormPage() {
           <Link to="/catalog?tab=options" className="btn btn-ghost btn-sm" title="Edit Form / Frequency / Instruction options in Catalog">
             Manage dropdown options
           </Link>
-          <button className="btn btn-outline btn-sm" onClick={() => setMeds([...meds, emptyRow()])}>
-            + Add Medicine
-          </button>
-        </div>
-        <div style={{ padding: '0 16px 12px' }}>
-          <button className="btn btn-outline btn-sm" onClick={savePdf} disabled={saving}>
-            <IDownload size={14} /> Save as PDF
-          </button>
+          {!readOnly && (
+            <button className="btn btn-outline btn-sm" onClick={() => setMeds([...meds, emptyRow()])}>
+              + Add Medicine
+            </button>
+          )}
         </div>
         <div className="table-wrap" style={{ overflow: 'visible' }}>
           <table className="tbl">
@@ -438,69 +487,88 @@ export default function PrescriptionFormPage() {
                 <tr key={i}>
                   <td style={{ color: 'var(--muted)' }}>{i + 1}</td>
                   <td>
-                    <MedicineCombo
-                      value={m.medicineName}
-                      onChange={(v) => updateMed(i, { medicineName: v, medicineId: null })}
-                      onPick={(med) =>
-                        updateMed(i, {
-                          medicineId: med.id,
-                          medicineName: med.name,
-                          strength: med.strength ?? '',
-                          dosageForm: med.dosage_form ?? '',
-                          dose: m.dose || med.default_dosage_instruction || '',
-                        })
-                      }
-                    />
+                    {readOnly ? (
+                      <input className="input" style={{ minWidth: 190 }} value={m.medicineName} disabled />
+                    ) : (
+                      <MedicineCombo
+                        value={m.medicineName}
+                        onChange={(v) => updateMed(i, { medicineName: v, medicineId: null })}
+                        onPick={(med) =>
+                          updateMed(i, {
+                            medicineId: med.id,
+                            medicineName: med.name,
+                            strength: med.strength ?? '',
+                            dosageForm: med.dosage_form ?? '',
+                            dose: m.dose || med.default_dosage_instruction || '',
+                          })
+                        }
+                      />
+                    )}
                   </td>
                   <td>
-                    <input className="input" style={{ minWidth: 80 }} value={m.strength} onChange={(e) => updateMed(i, { strength: e.target.value })} placeholder="500 mg" />
+                    <input className="input" style={{ minWidth: 80 }} value={m.strength} disabled={readOnly} onChange={(e) => updateMed(i, { strength: e.target.value })} placeholder="500 mg" />
                   </td>
                   <td>
-                    <OptionCombo
-                      value={m.dosageForm}
-                      onChange={(v) => updateMed(i, { dosageForm: v })}
-                      options={optionLists.dosage_form}
-                      placeholder="Tablet"
-                      minWidth={90}
-                    />
+                    {readOnly ? (
+                      <input className="input" style={{ minWidth: 90 }} value={m.dosageForm} disabled />
+                    ) : (
+                      <OptionCombo
+                        value={m.dosageForm}
+                        onChange={(v) => updateMed(i, { dosageForm: v })}
+                        options={optionLists.dosage_form}
+                        placeholder="Tablet"
+                        minWidth={90}
+                      />
+                    )}
                   </td>
                   <td>
-                    <input className="input" style={{ minWidth: 80 }} value={m.dose} onChange={(e) => updateMed(i, { dose: e.target.value })} placeholder="1 Tablet" />
+                    <input className="input" style={{ minWidth: 80 }} value={m.dose} disabled={readOnly} onChange={(e) => updateMed(i, { dose: e.target.value })} placeholder="1 Tablet" />
                   </td>
                   <td>
-                    <OptionCombo
-                      value={m.frequency}
-                      onChange={(v) => updateMed(i, { frequency: v })}
-                      options={optionLists.frequency}
-                      placeholder="BD (Twice daily)"
-                      minWidth={130}
-                    />
+                    {readOnly ? (
+                      <input className="input" style={{ minWidth: 130 }} value={m.frequency} disabled />
+                    ) : (
+                      <OptionCombo
+                        value={m.frequency}
+                        onChange={(v) => updateMed(i, { frequency: v })}
+                        options={optionLists.frequency}
+                        placeholder="BD (Twice daily)"
+                        minWidth={130}
+                      />
+                    )}
                   </td>
                   <td>
-                    <input className="input" style={{ minWidth: 70 }} value={m.duration} onChange={(e) => updateMed(i, { duration: e.target.value })} placeholder="5 Days" />
+                    <input className="input" style={{ minWidth: 70 }} value={m.duration} disabled={readOnly} onChange={(e) => updateMed(i, { duration: e.target.value })} placeholder="5 Days" />
                   </td>
                   <td>
                     <div style={{ display: 'flex', gap: 6 }}>
-                      <OptionCombo
-                        value={m.timingInstruction}
-                        onChange={(v) => updateMed(i, { timingInstruction: v })}
-                        options={optionLists.timing}
-                        placeholder="After meals"
-                        minWidth={110}
-                      />
+                      {readOnly ? (
+                        <input className="input" style={{ minWidth: 110 }} value={m.timingInstruction} disabled />
+                      ) : (
+                        <OptionCombo
+                          value={m.timingInstruction}
+                          onChange={(v) => updateMed(i, { timingInstruction: v })}
+                          options={optionLists.timing}
+                          placeholder="After meals"
+                          minWidth={110}
+                        />
+                      )}
                       <input
                         className="input"
                         style={{ minWidth: 110 }}
                         value={m.specialInstructions}
+                        disabled={readOnly}
                         onChange={(e) => updateMed(i, { specialInstructions: e.target.value })}
                         placeholder="Notes"
                       />
                     </div>
                   </td>
                   <td>
-                    <button className="btn btn-danger btn-icon" title="Remove" onClick={() => setMeds(meds.filter((_, idx) => idx !== i))}>
-                      <ITrash size={14} />
-                    </button>
+                    {!readOnly && (
+                      <button className="btn btn-danger btn-icon" title="Remove" onClick={() => setMeds(meds.filter((_, idx) => idx !== i))}>
+                        <ITrash size={14} />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -512,10 +580,33 @@ export default function PrescriptionFormPage() {
       <div className="card">
         <div className="form-footer" style={{ justifyContent: 'flex-end' }}>
           <div style={{ display: 'flex', gap: 10 }}>
-            <button className="btn btn-outline" onClick={() => save(false)} disabled={saving}>
-              Save
-            </button>
-            <button className="btn btn-primary" onClick={() => save(true)} disabled={saving}>
+            {editing ? (
+              <>
+                {rxStatus === 'finalized' && (
+                  <button
+                    className="btn btn-ghost"
+                    disabled={saving}
+                    onClick={async () => {
+                      await reloadPrescription()
+                      setEditing(false)
+                    }}
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button className="btn btn-outline" onClick={() => save('draft')} disabled={saving}>
+                  Save as Draft
+                </button>
+                <button className="btn btn-primary" onClick={() => save('final')} disabled={saving}>
+                  Save
+                </button>
+              </>
+            ) : (
+              <button className="btn btn-outline" onClick={() => setEditing(true)} disabled={saving}>
+                <IEdit size={15} /> Edit
+              </button>
+            )}
+            <button className="btn btn-outline" onClick={() => save('print')} disabled={saving}>
               <IPrint size={15} /> Print
             </button>
           </div>

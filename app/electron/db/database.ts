@@ -122,6 +122,7 @@ CREATE TABLE IF NOT EXISTS prescriptions (
   follow_up_date TEXT,
   notes TEXT,
   status TEXT NOT NULL DEFAULT 'draft',
+  edit_count INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   deleted_at TEXT,
@@ -597,6 +598,17 @@ export function initDatabase(): void {
     }
     db.prepare(`INSERT INTO schema_migrations (name) VALUES (?)`).run('009_test_schedule_report')
     appendLog('Applied migration 009_test_schedule_report')
+  }
+
+  const applied010 = db.prepare(`SELECT name FROM schema_migrations WHERE name = ?`).get('010_prescription_edit_count')
+  if (!applied010) {
+    try {
+      db.exec(`ALTER TABLE prescriptions ADD COLUMN edit_count INTEGER NOT NULL DEFAULT 0`)
+    } catch {
+      // column already exists
+    }
+    db.prepare(`INSERT INTO schema_migrations (name) VALUES (?)`).run('010_prescription_edit_count')
+    appendLog('Applied migration 010_prescription_edit_count')
   }
 
   const insertSetting = db.prepare(

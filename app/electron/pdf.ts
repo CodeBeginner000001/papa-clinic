@@ -646,6 +646,56 @@ async function savePdfCopy(
   return dest
 }
 
+/** Show the native print dialog once for HTML (Cmd+P equivalent). */
+async function printWithSystemDialog(html: string, title: string): Promise<void> {
+  const parent = BrowserWindow.getFocusedWindow() ?? undefined
+  const win = new BrowserWindow({
+    width: 900,
+    height: 1000,
+    // Off-screen so only the system print dialog is visible (not a second app window).
+    x: -10000,
+    y: -10000,
+    show: false,
+    autoHideMenuBar: true,
+    title,
+    parent,
+    webPreferences: { sandbox: true },
+  })
+
+  try {
+    await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+    win.showInactive()
+
+    await new Promise<void>((resolve) => {
+      let settled = false
+      const finish = () => {
+        if (settled) return
+        settled = true
+        resolve()
+      }
+
+      win.once('closed', finish)
+
+      win.webContents
+        .executeJavaScript(
+          `new Promise((resolve) => {
+            const done = () => resolve(true);
+            window.addEventListener('afterprint', done, { once: true });
+            window.print();
+          })`,
+          true,
+        )
+        .then(finish)
+        .catch(finish)
+
+      // Safety: never leave the UI stuck if afterprint never fires
+      setTimeout(finish, 5 * 60 * 1000)
+    })
+  } finally {
+    if (!win.isDestroyed()) win.close()
+  }
+}
+
 export async function printHtml(
   html: string,
   title = 'Print',
@@ -653,31 +703,7 @@ export async function printHtml(
 ): Promise<{ archived: string }> {
   const folder = archiveFolderForName(pdfName)
   const archived = await savePdfCopy(html, folder, pdfName, false)
-
-  const win = new BrowserWindow({
-    width: 900,
-    height: 1000,
-    show: false,
-    autoHideMenuBar: true,
-    title,
-    webPreferences: { sandbox: true },
-  })
-
-  try {
-    await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
-    await new Promise<void>((resolve, reject) => {
-      win.webContents.print({ silent: false, printBackground: true }, (success, failureReason) => {
-        if (success || failureReason === 'cancelled') {
-          resolve()
-        } else {
-          reject(new Error(failureReason || 'Printing failed'))
-        }
-      })
-    })
-  } finally {
-    if (!win.isDestroyed()) win.close()
-  }
-
+  await printWithSystemDialog(html, title)
   return { archived }
 }
 

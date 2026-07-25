@@ -229,6 +229,7 @@ export interface Prescription {
   follow_up_date: string | null
   notes: string | null
   status: PrescriptionStatus
+  edit_count: number
   created_at: string
   updated_at: string
   deleted_at: string | null
