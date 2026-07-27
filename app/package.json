@@ -10,10 +10,10 @@
     "dev": "env -u ELECTRON_RUN_AS_NODE vite",
     "build": "tsc -p tsconfig.node.json --noEmit && vite build",
     "start": "env -u ELECTRON_RUN_AS_NODE electron .",
-    "dist": "npm run build && env -u ELECTRON_RUN_AS_NODE electron-builder",
-    "dist:mac": "npm run build && env -u ELECTRON_RUN_AS_NODE electron-builder --mac",
-    "dist:win": "npm run build && env -u ELECTRON_RUN_AS_NODE electron-builder --win",
-    "dist:linux": "npm run build && env -u ELECTRON_RUN_AS_NODE electron-builder --linux",
+    "dist": "node scripts/pack.js mac",
+    "dist:mac": "node scripts/pack.js mac",
+    "dist:win": "node scripts/pack.js win",
+    "dist:linux": "node scripts/pack.js linux",
     "postinstall": "electron-builder install-app-deps || npx @electron/rebuild -f -w better-sqlite3"
   },
   "dependencies": {
@@ -47,13 +47,19 @@
       "dist/**/*",
       "dist-electron/**/*"
     ],
+    "asarUnpack": [
+      "**/*.{node,dll}"
+    ],
+    "npmRebuild": false,
     "extraResources": [],
     "mac": {
       "icon": "build/icon.icns",
       "target": [
         "dmg"
       ],
-      "category": "public.app-category.medical"
+      "category": "public.app-category.medical",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false
     },
     "win": {
       "icon": "build/icon.png",
@@ -69,7 +75,9 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     }
   }
 }

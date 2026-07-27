@@ -29,23 +29,30 @@ npm start
 
 (`ELECTRON_RUN_AS_NODE` must not be set — the npm scripts clear it.)
 
-## Package
+## Package (shareable installers)
 
 ```bash
-npm run dist:mac
-npm run dist:win
-npm run dist:linux
+npm run dist:mac    # macOS DMGs: Intel (x64) + Apple Silicon (arm64)
+npm run dist:win    # Windows x64 Setup .exe  (works from Mac via prebuilds)
+npm run dist:linux  # Linux x64 AppImage
 ```
 
-Installers are written to `release/`.
+Installers are written to `release/`. Packaging downloads the correct `better-sqlite3` binary for each OS so the app runs on other computers without Node/npm installed.
 
-## Data location
+**What to share**
 
-The app stores data under the OS app data directory (Electron `userData`), including:
+| Recipient | File |
+|-----------|------|
+| Windows PC (normal) | `AK Heart & Diabetics Care Center Setup 1.0.0.exe` |
+| Mac (Apple Silicon / M1–M4) | `AK Heart & Diabetics Care Center-1.0.0-arm64.dmg` |
+| Mac (Intel) | `AK Heart & Diabetics Care Center-1.0.0.dmg` |
 
-- `clinic.db`
-- `backups/`
-- `prescriptions/`
-- `bills/`
-- `exports/`
-- `logs/`
+Share only the `.exe` / `.dmg` — not `win-unpacked` or `mac-*` folders.
+
+**Windows:** SmartScreen may say “Unknown publisher”. Click **More info → Run anyway**.
+
+**macOS:** If the app says it’s damaged after download, run:
+```bash
+xattr -cr "/Applications/AK Heart & Diabetics Care Center.app"
+```
+Then open it once via Right-click → Open.

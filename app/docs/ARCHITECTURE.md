@@ -181,12 +181,15 @@ npm install
 npm run dev              # development (Vite + Electron)
 npm run build && npm start
 
-npm run dist:mac         # macOS DMG → release/
-npm run dist:win         # Windows NSIS installer → release/
-npm run dist:linux       # AppImage → release/
+npm run dist:mac         # macOS DMGs (arm64 + x64) → release/
+npm run dist:win         # Windows x64 NSIS Setup.exe → release/
+npm run dist:linux       # Linux x64 AppImage → release/
 ```
 
-**Note:** Building a Windows installer from macOS may require additional cross-build tooling; building on Windows is the most reliable path for `dist:win`.
+Share only the `.dmg` / Setup `.exe` from `release/` (not unpacked folders). Packaging uses `scripts/pack.js` to install the correct `better-sqlite3` binary per OS/arch so installers work on other machines.
+
+**macOS:** Unsigned downloads may need `xattr -cr "/Applications/AK Heart & Diabetics Care Center.app"` once.  
+**Windows:** SmartScreen may require More info → Run anyway.
 
 ---
 
