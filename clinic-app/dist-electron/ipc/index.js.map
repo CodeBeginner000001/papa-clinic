@@ -1,0 +1,1 @@
+{"version":3,"file":"index.js","sourceRoot":"","sources":["../../electron/ipc/index.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,mBAAmB,EAAE,MAAM,4BAA4B,CAAC;AAEjE,MAAM,CAAC,MAAM,mBAAmB,GAAG,GAAS,EAAE;IAC5C,mBAAmB,EAAE,CAAC;AACxB,CAAC,CAAC"}

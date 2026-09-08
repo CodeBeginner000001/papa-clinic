@@ -1,0 +1,13 @@
+{
+    "application": {
+      "name": "Clinic App",
+      "version": "2.0.0",
+      "description": "Offline clinic management application"
+    },
+    "window": {
+      "width": 1440,
+      "height": 1000,
+      "minWidth": 1080,
+      "minHeight": 700
+    }
+}

@@ -1,0 +1,121 @@
+STARTING PROJECT
+We start this project with creating a vite app using below command
+ * npm create vite@latest clinic-app
+
+INSTALLING TAILWIND CSS
+ * npm install tailwindcss @tailwindcss/vite
+
+open: vite.config.ts file and add
+-> import tailwindcss from "@tailwindcss/vite";
+then add "tailwindcss()" to the plugins array where we have react function
+-> plugins: [react(), tailwindcss()],
+
+Now lets open: **src/index.css** add this on the top of the file
+-> @import "tailwindcss";
+
+To check, its working open: **src/App.tsx** and paste
+```
+function App() {
+  return (
+    <div className="flex min-h-screen items-center justify-center">
+      <h1 className="text-4xl font-bold">
+        Clinic App
+      </h1>
+    </div>
+  );
+}
+
+export default App;
+```
+
+INSTALLING ELECTRON
+* npm install -D electron
+* npm install -D concurrently wait-on
+* npm install -D tsx
+* npm install -D electron-builder
+then add these in **package.json**
+```
+"name": "clinic-app",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Offline clinic management application",
+  "author": "Clinic App",
+  "main": "dist-electron/main/index.js",
+
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"npm run electron:dev\"",
+
+    "electron:dev": "wait-on http://localhost:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 tsx electron/main/index.ts",
+
+    "build": "npm run build:renderer && npm run build:electron",
+
+    "build:renderer": "vite build",
+
+    "build:electron": "tsc -p tsconfig.electron.json",
+
+    "dist": "npm run build && electron-builder",
+
+    "dist:mac": "npm run build && electron-builder --mac",
+
+    "dist:win": "npm run build && electron-builder --win",
+
+    "dist:linux": "npm run build && electron-builder --linux"
+  },
+```
+after "devDependencies" key in the package.json file
+```
+"build": {
+    "appId": "com.clinicapp.desktop",
+    "productName": "Clinic App",
+
+    "directories": {
+      "output": "release",
+      "buildResources": "resources"
+    },
+
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "resources/config/**/*"
+    ],
+
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.medical"
+    },
+
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
+
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "Office"
+    }
+  }
+```
+
